@@ -10,28 +10,33 @@ using UnityEngine;
 //破按钮点击之后被聚焦，按空格会再次触发。需要Navigation = none.
 public class KeyBindingItem : MonoBehaviour
 {
-    [SerializeField] private MyInputAction myAction;
-    [SerializeField] private TMP_Text text_key;
+    [SerializeField] public string action = "action";
+    [SerializeField] public TMP_Text text_key;
     [SerializeField] private TMP_Text text_dec;
-
-    //编辑器中看到效果。
+    //编辑器中自动更新为aciton
     private void OnValidate()
     {
-        text_dec.text = myAction.ToString();
+        text_dec.text = action;
     }
-    private void Start()
+
+    public void SetKeyText(string text)
     {
-        InputManager.instance.bindingChanged += UpdateText;
-        UpdateText();
+        text_key.text = text;
     }
-    private void UpdateText()
+
+    public void SetKeyTextColor(Color color)
     {
-        text_key.text = InputManager.instance.GetKey(myAction).ToString();
+        text_key.color = color;
+    }
+
+    public void UpdateKeyText()
+    {
+        text_key.text = InputManager.instance.GetKey(action).ToString();
     }
 
     public void OnBtnClicked()
     {
         text_key.text = "?";
-        InputManager.instance.StartBinding(myAction);
+        InputManager.instance.StartBinding(action);
     }
 }

@@ -1,65 +1,99 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 /**
 * Title:输入管理器
-* Description:这个输入管理器支持按键和重新映射按键。提供InputAction枚举。
-* 缺点：每个项目的InputAction都是不一样的，需要动这个文件，不符合模块化标准。以后做其他项目遇到问题再说
-* 优点：采用单例模式。
-* TODO:检测重复按键。在编辑器添加MyInputAction。并且配置默认按键，不用跑到代码里来。
+* Description:重新绑定按键，配置按键，重置按键，取消绑定，
+* 三种按键状态，检测重复按键，键位变更通知、绑定取消通知。
+* 优点：模块化。
+* TODO:限定可绑定按键。
 */
-public enum MyInputAction
+
+//配置相关必须是Public
+//用于序列化，与ScriptableObject结合使用。
+[System.Serializable]
+public struct KeyConfig
 {
-    None,
-    Jump,
-    BackPack,
-    Drop,
-    Attack,
-    Use,
-    HideUI,
-    TakePhoto,
+    public string action;
+    public KeyCode defaultKey;
+    public KeyCode currentKey;
+}
+
+public enum KeyState
+{
+    Down,
+    Hold,
+    Up
+}
+//可以在编辑器中配置。
+[CreateAssetMenu(fileName = "InputMappingConfig", menuName = "InputManager/InputMappingConfig")]
+public class InputMappingConfig : ScriptableObject
+{
+    //为了方便修改和查找改用Dictionary。 //配置只能用List.............啊啊啊啊啊
+    public List<KeyConfig> InputMapping = new List<KeyConfig>();
 }
 
 public class InputManager : MonoBehaviour
 {
     public static InputManager instance;
-    public Action bindingChanged;
-    private MyInputAction currentBindingAction;
-    private bool isRebinding = false;
 
-    readonly Dictionary<MyInputAction, KeyCode> defaultInputMapping = new Dictionary<MyInputAction, KeyCode>()
+    [SerializeField] private InputMappingConfig _inputconfig;
+    //方便点。。。
+    public List<KeyConfig> InputConfig
     {
-        {MyInputAction.Jump,KeyCode.Space},
-        {MyInputAction.BackPack,KeyCode.E },
-        {MyInputAction.Drop,KeyCode.Q },
-        {MyInputAction.Attack,KeyCode.Mouse0 },
-        {MyInputAction.Use,KeyCode.Mouse1 },
-        {MyInputAction.HideUI,KeyCode.F1 },
-        {MyInputAction.TakePhoto,KeyCode.F2 }
-    };
+        get
+        {
+            return _inputconfig.InputMapping;
+        }
+    }
+    /// <summary>
+    /// 广播冲突action
+    /// </summary>
+    public Action<List<string>> confChanged;
+    /// <summary>
+    /// 广播取消绑定的按键
+    /// </summary>
+    public Action<string> confCanceled;
+    private string currentBindingAction;
 
-    const string bUseDefaultKey = "bUseDefaultInputMapping";
-    int bUseDefault = 1;
+    private bool isRebinding = false;
 
     private void Awake()
     {
         instance = this;
-        Load();
         DontDestroyOnLoad(instance);
+    }
+
+    private void Start()
+    {
     }
     private void Update()
     {
         DetectBindingKey();
     }
     //用于查询某个Action的按键是否被按下，用于执行逻辑
-    public bool IsActionTriggered(MyInputAction action)
+    public bool IsActionInState(string action, KeyState state = KeyState.Down)
     {
-        return Input.GetKeyDown(currentInputMapping[action]);
+        KeyCode key = GetKey(action);
+        if (state == KeyState.Down)
+        {
+            return Input.GetKeyDown(key);
+        }
+        else if (state == KeyState.Hold)
+        {
+            return Input.GetKey(key);
+        }
+        else if (state == KeyState.Up)
+        {
+            return Input.GetKeyUp(key);
+        }
+        return false;
     }
 
     //用于开始绑定某个Action
-    public void StartBinding(MyInputAction bindingAction)
+    public void StartBinding(string bindingAction)
     {
         Debug.Log(string.Format("开始绑定:{0}", bindingAction));
         currentBindingAction = bindingAction;
@@ -69,102 +103,73 @@ public class InputManager : MonoBehaviour
     //按ESC取消绑定。
     public void CancelBinding()
     {
-        currentBindingAction = MyInputAction.None;
+        confCanceled?.Invoke(currentBindingAction);
+        currentBindingAction = "";
         isRebinding = false;
         Debug.Log("取消绑定");
-        bindingChanged.Invoke();
+
     }
 
     //用于查询当前Action对应的按键更新UI.
-    public KeyCode GetKey(MyInputAction action)
+    public KeyCode GetKey(string action)
     {
-        return currentInputMapping[action];
+        foreach (KeyConfig keyconfig in InputConfig)
+        {
+            if (keyconfig.action == action)
+            {
+                return keyconfig.currentKey;
+            }
+        }
+        return KeyCode.None;
     }
 
-    private void Rebind(MyInputAction action, KeyCode keycode)
+    public int FindKeyConfig(string action)
+    {
+        for (int i = 0; i < InputConfig.Count; i++)
+        {
+            if (InputConfig[i].action == action)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private void Rebind(string action, KeyCode keycode)
     {
         Debug.Log("重新绑定按键。。。");
-        SetCurrentInputMapping(action, keycode);
-        bUseDefault = 0;
-        Save();
-        ShowCurrent();
-    }
-
-    private Dictionary<MyInputAction, KeyCode> currentInputMapping = new Dictionary<MyInputAction, KeyCode>();
-    void SetCurrentInputMapping(MyInputAction action, KeyCode key)
-    {
-        currentInputMapping[action] = key;
-        bindingChanged?.Invoke();
-    }
-
-    void SetCurrentInputMapping(Dictionary<MyInputAction, KeyCode> otherMapping)
-    {
-        //产生了浅拷贝.
-        //currentInputMapping = otherMapping;
-        currentInputMapping = new Dictionary<MyInputAction, KeyCode>(otherMapping); //这是深拷贝。
-        bindingChanged?.Invoke();
-    }
-    private void Load()
-    {
-        bUseDefault = PlayerPrefs.GetInt(bUseDefaultKey);
-        if (bUseDefault == 1)
+        //修改结构体（值类型）
+        int index = FindKeyConfig(action);
+        if (index != -1)
         {
-            Debug.Log("使用默认键位..");
-            SetCurrentInputMapping(defaultInputMapping);
+            KeyConfig conf = InputConfig[index];
+            conf.currentKey = keycode;
+            InputConfig[index] = conf;
+            confChanged?.Invoke(GetConflictActions());
         }
-        else
-        {
-            Debug.Log("加载键位..");
-            foreach (MyInputAction action in Enum.GetValues(typeof(MyInputAction)))
-            {
-                int value = PlayerPrefs.GetInt(action.ToString());
-                SetCurrentInputMapping(action, (KeyCode)value);
-            }
-            ShowCurrent();
-        }
+        ShowConfig();
     }
-
     public void ResetBinding()
     {
         Debug.Log("重置按键..");
-        bUseDefault = 1;
-        SetCurrentInputMapping(defaultInputMapping);
-        Save();
-    }
-
-    private void Save()
-    {
-        Debug.Log("保存按键绑定。。。");
-        foreach (KeyValuePair<MyInputAction, KeyCode> pair in currentInputMapping)
+        for (int i = 0; i < InputConfig.Count; i++)
         {
-            PlayerPrefs.SetInt(pair.Key.ToString(), (int)pair.Value);
+            KeyConfig conf = InputConfig[i];
+            conf.currentKey = conf.defaultKey;
+            InputConfig[i] = conf;
         }
-        PlayerPrefs.SetInt(bUseDefaultKey, bUseDefault);
-        ShowSaved();
+        confChanged?.Invoke(GetConflictActions());
     }
 
-    public void ShowCurrent()
+    public void ShowConfig()
     {
         Debug.Log("显示当前按键绑定");
-        foreach (KeyValuePair<MyInputAction, KeyCode> pair in currentInputMapping)
+        foreach (KeyConfig conf in InputConfig)
         {
-            Debug.Log(string.Format("action:{0},keyCode:{1}", pair.Key, pair.Value));
+            Debug.Log(string.Format("action:{0} - 默认key:{1} 当前key{2}", conf.action, conf.defaultKey, conf.currentKey));
         }
-        Debug.Log(string.Format("busedefault:{0}", bUseDefault));
 
     }
-
-    public void ShowSaved()
-    {
-        Debug.Log("显示保存的按键绑定");
-        foreach (MyInputAction action in Enum.GetValues(typeof(MyInputAction)))
-        {
-            KeyCode key = (KeyCode)(PlayerPrefs.GetInt(action.ToString()));
-            Debug.Log(string.Format("action:{0},keyCode:{1}", action, key));
-        }
-        Debug.Log(string.Format("busedefault:{0}", PlayerPrefs.GetInt(bUseDefaultKey)));
-    }
-
     private void DetectBindingKey()
     {
         if (isRebinding)
@@ -186,11 +191,45 @@ public class InputManager : MonoBehaviour
                 }
                 //单例模式不用写Static的。Static那是。。。工具类。
                 Rebind(currentBindingAction, pressedKey);
-                currentBindingAction = MyInputAction.None;
+                currentBindingAction = "";
                 isRebinding = false;
                 Debug.Log("绑定成功");
             }
         }
     }
 
+    /// <summary>
+    /// 用于更新界面。
+    /// </summary>
+    /// <returns></returns>
+    public List<string> GetConflictActions()
+    {
+        Dictionary<KeyCode, List<string>> map = new Dictionary<KeyCode, List<string>>();
+        List<string> result = new List<string>();
+        //将所有KeyCode取出，映射到绑定了他的action
+        for (int i = 0; i < InputConfig.Count; i++)
+        {
+            KeyCode key = InputConfig[i].currentKey;
+            if (!map.ContainsKey(key))
+            {
+                map[key] = new List<string>();
+            }
+            map[key].Add(InputConfig[i].action);
+        }
+
+        foreach (var pair in map)
+        {
+            if (pair.Value.Count > 1)
+            {
+                result.AddRange(pair.Value);
+            }
+        }
+
+        Debug.Log(string.Format("冲突Actions:"));
+        foreach (var action in result)
+        {
+            Debug.Log(action);
+        }
+        return result;
+    }
 }
