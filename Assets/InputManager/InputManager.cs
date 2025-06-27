@@ -27,19 +27,14 @@ public enum KeyState
     Hold,
     Up
 }
-//可以在编辑器中配置。
-[CreateAssetMenu(fileName = "InputMappingConfig", menuName = "InputManager/InputMappingConfig")]
-public class InputMappingConfig : ScriptableObject
-{
-    //为了方便修改和查找改用Dictionary。 //配置只能用List.............啊啊啊啊啊
-    public List<KeyConfig> InputMapping = new List<KeyConfig>();
-}
 
 public class InputManager : MonoBehaviour
 {
     public static InputManager instance;
 
-    [SerializeField] private InputMappingConfig _inputconfig;
+    //这玩意打包出来变空了
+    //我把它放到单独的文件中并且文件名和类名保持一致。就好了。。。
+    [SerializeField] private InputMappingConfig _inputconfig = null;
     //方便点。。。
     public List<KeyConfig> InputConfig
     {
