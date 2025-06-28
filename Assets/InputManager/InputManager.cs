@@ -69,7 +69,7 @@ public class InputManager : MonoBehaviour
         DetectBindingKey();
     }
     //用于查询某个Action的按键是否被按下，用于执行逻辑
-    public bool IsActionInState(string action, KeyState state = KeyState.Down)
+    public bool InState(string action, KeyState state = KeyState.Down)
     {
         KeyCode key = GetKey(action);
         if (state == KeyState.Down)
